@@ -15,14 +15,12 @@ Jetson Bolt (it comes from the shared app not the individual bike). Only the BLE
   ```bash
   pip install bleak
   ```
-- A Bluetooth adapter supported by bleak (macOS, Linux, or Windows all work).
-- The official Jetson app **closed** before running this script — the bike
-  only accepts one connected controller ("central") at a time, and a
-  lingering app connection will make scanning/connecting hang.
+- A Bluetooth adapter supported by bleak (macOS, Linux, and Windows all work).
+- The Jetson Bolt **cannot** be connected to the official Jetson app when running this script
 
 ## Quick Start
 
-Power on a new bike and run:
+Power on a bike and run:
 
 ```bash
 python3 OpenJetBolt.py pair
@@ -49,7 +47,7 @@ in priority order:
 1. `--address` / `--password` / `--name-hint` flags on the command line
 2. `jetson_bolt_config.json` next to the script (written by `pair` or
    `config set`)
-3. Built-in defaults — no fixed address (falls back to scanning for a device
+3. Built-in defaults - no fixed address (falls back to scanning for a device
    named "Bolt"), password `000000`
 
 To keep a saved default and still run a one-off command for a different bike without changing your config:
@@ -124,11 +122,11 @@ python3 OpenJetBolt.py set 30
 
 Sends the "set max speed" command and waits for the bike's  confirmation. 3 possible outcomes:
 
-- **confirmed** — the bike accepted exactly the value you sent
+- **confirmed** - the bike accepted exactly the value you sent
 
-- **clamped** — the bike's firmware capped it lower than requested (the reported value is the actual new ceiling)
+- **clamped** - the bike's firmware capped it lower than requested (the reported value is the actual new ceiling)
 
-- **no confirmation** — the frame was sent but no telemetry read back arrived in time
+- **no confirmation** - the frame was sent but no telemetry read back arrived in time
 
 ### `monitor [seconds]`
 
@@ -179,12 +177,12 @@ terminal while the decoded telemetry stream keeps scrolling above it:
 | BATTERY: 98% | SPEED_RAW: 152 | TOP_SPEED: 210 | MAX: 33 km/h (20.5 mph) | BRAKE: - | LIGHT: - | CRUISE: 0 |
 ```
 
-- **BATTERY** — battery percentage
-- **SPEED_RAW** — live speed/RPM reading
-- **TOP_SPEED** — highest `SPEED_RAW` value seen this session
-- **MAX** — currently active max speed limit
-- **BRAKE** / **LIGHT** — `YES` if on, `-` otherwise
-- **CRUISE** — cruise control setting
+- **BATTERY** - battery percentage
+- **SPEED_RAW** - live speed/RPM reading
+- **TOP_SPEED** - highest `SPEED_RAW` value seen this session
+- **MAX** - currently active max speed limit
+- **BRAKE** / **LIGHT** - `YES` if on, `-` otherwise
+- **CRUISE** - cruise control setting
 
 ## Example Usage
 
@@ -207,7 +205,7 @@ python3 OpenJetBolt.py set 32
 #   -> set max speed 32 km/h (19.9 mph):  aa 06 06 20 ... bb
 #   confirmed: controller accepted 32 km/h
 
-# Watch it ride with a live summary bar
+# Watch the live summary data for 60 seconds
 python3 OpenJetBolt.py monitor 60
 ```
 
