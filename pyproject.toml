@@ -1,0 +1,23 @@
+[project]
+name = "openjetbolt"
+version = "0.1.0"
+description = "Talk to a Jetson Bolt E-Bike BLE controller directly, without the official app."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+dependencies = [
+    "bleak",
+]
+
+# Only pulled in via `pip install -e ".[test]"` -- never required to just run
+# OpenJetBolt.py (see README "Development / running tests").
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "pytest-mock>=3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

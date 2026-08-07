@@ -209,6 +209,24 @@ python3 OpenJetBolt.py set 32
 python3 OpenJetBolt.py monitor 60
 ```
 
+## Development / running tests
+
+Normal usage only needs `bleak` (see [Requirements](#requirements)). The unit
+test suite under `tests/` have optional dependencies
+
+```bash
+pip install -e ".[test]"
+```
+
+Tests run from repo root
+
+```bash
+pytest
+```
+
+Every `helpers/*.py` file has a  `tests/test_*.py` module. BLE
+hardware, stdin, and the real `jetson_bolt_config.json` are all mocked/redirected.
+
 ## Notes
 
 - On macOS bleak/CoreBluetooth hides the bike's real MAC address and
