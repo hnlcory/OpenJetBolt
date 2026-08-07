@@ -4,7 +4,8 @@ version = "0.1.0"
 description = "Talk to a Jetson Bolt E-Bike BLE controller directly, without the official app."
 readme = "README.md"
 requires-python = ">=3.8"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "bleak",
 ]
@@ -17,6 +18,14 @@ test = [
     "pytest-asyncio>=0.23",
     "pytest-mock>=3",
 ]
+
+# Without this, setuptools' automatic package discovery finds every
+# top-level directory with an __init__.py-like layout -- including
+# unrelated ones like images/ -- and refuses to build ("Multiple
+# top-level packages discovered in a flat-layout"). `helpers/` is the only
+# thing that's actually an importable package here.
+[tool.setuptools]
+packages = ["helpers"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

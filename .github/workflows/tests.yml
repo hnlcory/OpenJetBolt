@@ -1,0 +1,44 @@
+name: Tests
+
+# Runs the unit test suite (tests/) on every push to main, on every pull
+# request targeting main (so regressions are caught before merge, not
+# after), and lets you trigger a run manually from the Actions tab.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel a PR's in-progress run when a new commit is pushed to it, so pushing
+# 3 commits in a row doesn't queue up 3 redundant full matrix runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false   # let every Python version finish even if one fails, so a single-version regression is easy to spot
+      matrix:
+        # The 3 most recent stable CPython releases, kept current as new
+        # versions ship -- bump this list (drop the oldest, add the newest)
+        # once a new Python version is out.
+        python-version: ["3.12", "3.13", "3.14"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install test dependencies
+        run: pip install -e ".[test]"
+
+      - name: Run tests
+        run: pytest -v

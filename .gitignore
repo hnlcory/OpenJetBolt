@@ -1,4 +1,43 @@
+# OS junk
 .DS_Store
+Thumbs.db
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# Python bytecode / caches
 __pycache__/
-*.pyc
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build/packaging artifacts from `pip install -e ".[test]"
+*.egg-info/
+build/
+dist/
+*.whl
+
+# Test/coverage artifacts
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# jetson_bolt_config.json: saved BLE address + 6-digit bike password
 jetson_bolt_config.json
+# jetson_telemetry.csv: default output of `OpenJetBolt.py log`
+jetson_telemetry.csv
+*.csv
+
+# Generic secrets/env files
+.env
+.env.*
+*.pem
+*.key
