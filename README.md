@@ -1,6 +1,6 @@
 # OpenJetBolt
 
-A CLI tool that talks directly to a Jetson Bolt e-bike over Bluetooth
+A CLI tool that talks directly to a Jetson Bolt E-Bike over Bluetooth
 Low Energy (BLE), bypassing/replacing the official "Ride Jetson" iOS/Android app entirely. Reads live telemetry (battery, speed, brake/light state) and allows the bike's max speed limit to be set past the app restricted limit of 15mph.
 
 ![Image of the monitor function](images/screenshot_monitor.png)
