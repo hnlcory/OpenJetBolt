@@ -110,11 +110,20 @@ def decode_notify(data):
 #       battery   -- battery percentage, 0-100
 #       speed_raw -- live 16-bit speed/RPM reading (big-endian)
 #       cap       -- currently active max-speed limit, km/h
+#   NOTE: the length guard checks the PAYLOAD (data[3:-2]), not the raw
+#   frame -- a bare `len(data) >= 9` undercounts by one byte and lets a
+#   truncated 9-byte frame (payload len 4) through to `payload[4]`, raising
+#   IndexError from inside the bleak notify callback. A malformed/truncated
+#   frame is entirely plausible on a flaky BLE link, so this is checked
+#   after slicing, the same way decode_notify() already guards its own
+#   body-length checks.
 def parse_a1(data):
-    if len(data) >= 9 and data[0] == START and data[1] == 0xA1:
-        payload = data[3:-2]                           # payload bytes only
-        return (payload[0], (payload[1] << 8) | payload[2], payload[4])
-    return None
+    if len(data) < 5 or data[0] != START or data[1] != 0xA1:
+        return None
+    payload = data[3:-2]                           # payload bytes only
+    if len(payload) < 5:
+        return None
+    return (payload[0], (payload[1] << 8) | payload[2], payload[4])
 
 
 # parse_a4(data)
@@ -129,8 +138,12 @@ def parse_a1(data):
 #       brake  -- 1 if the brake lever is engaged, else 0
 #       light  -- 1 if the headlight is on, else 0
 #       analog -- raw analog reading (voltage/temperature-ish, undecoded)
+#   NOTE: see parse_a1()'s comment above -- same off-by-one length-guard fix
+#   applies here (checks len(payload), not len(data)).
 def parse_a4(data):
-    if len(data) >= 9 and data[0] == START and data[1] == 0xA4:
-        payload = data[3:-2]                           # payload bytes only
-        return (1 if payload[3] & 0x01 else 0, 1 if payload[4] & 0x10 else 0, payload[1])
-    return None
+    if len(data) < 5 or data[0] != START or data[1] != 0xA4:
+        return None
+    payload = data[3:-2]                           # payload bytes only
+    if len(payload) < 5:
+        return None
+    return (1 if payload[3] & 0x01 else 0, 1 if payload[4] & 0x10 else 0, payload[1])

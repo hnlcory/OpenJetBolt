@@ -105,6 +105,29 @@ def test_on_notify_writes_csv_row_for_a1_frame(mocker):
     assert fields[4] == "25"
 
 
+# Regression test for bug 1.2's real-world trigger point: _on_notify()
+# calls parse_a1()/parse_a4() unconditionally on every binary frame
+# whenever csv_file or status_bar is set (see helpers/transport.py). Before
+# the fix, a truncated 9-byte 0xA1 frame arriving mid-session -- entirely
+# plausible on a flaky BLE link -- raised IndexError from inside this
+# callback (bleak's notify callback, where an uncaught exception means
+# silently stalled telemetry rather than a clean traceback). Feeding one in
+# directly must not raise, and the CSV row should just show blank values
+# for the fields parse_a1() couldn't extract.
+def test_on_notify_does_not_crash_on_truncated_a1_frame(mocker):
+    bolt, _ = make_bolt(mocker)
+    bolt.csv_file = io.StringIO()
+    bolt.status_bar = MagicMock()
+    truncated_frame = bytes([0xAA, 0xA1, 0x09, 1, 2, 3, 4, 0x00, 0xBB])
+    assert len(truncated_frame) == 9
+
+    bolt._on_notify(None, truncated_frame)   # must not raise
+
+    row = bolt.csv_file.getvalue().strip()
+    fields = row.split(",")
+    assert fields[2] == ""   # battery -- parse_a1() returned None, so blank rather than a value
+
+
 # When status_bar is set (cli.cmd_monitor/cmd_log), an 0xA1 frame should
 # push BATTERY/SPEED_RAW/TOP_SPEED into the bar, and TOP_SPEED must track
 # the session-high reading -- a later, lower reading must not lower it.
@@ -311,6 +334,32 @@ async def test_set_max_speed_sends_frame_and_returns_confirmation(mocker):
     result = await bolt.set_max_speed(25)
     assert result == 25
     expected_frame = build_frame(TYPE_SET_SPEED, bytes([25]))
+    mock_client.write_gatt_char.assert_awaited_once_with(WRITE_CHAR, expected_frame, response=True)
+
+
+# Regression test for bug 1.4: set_max_speed() used to build the payload
+# byte with `kmh & 0xFF`, silently wrapping an out-of-range request into a
+# different, valid-looking speed (300 -> 44 km/h, -5 -> 251 km/h) instead
+# of rejecting it -- the wrong default for a command that controls how fast
+# a vehicle goes. It must now raise ValueError for anything outside 0-255,
+# and must never reach _write() (no frame should go out over BLE at all).
+@pytest.mark.parametrize("bad_kmh", [300, -5, 256, -1])
+async def test_set_max_speed_rejects_out_of_range_values(mocker, bad_kmh):
+    bolt, mock_client = make_bolt(mocker)
+    with pytest.raises(ValueError):
+        await bolt.set_max_speed(bad_kmh)
+    mock_client.write_gatt_char.assert_not_awaited()
+
+
+# The valid range's edges (0 and 255) must still be accepted -- the fix
+# should reject values OUTSIDE 0-255, not narrow the existing valid range.
+@pytest.mark.parametrize("boundary_kmh", [0, 255])
+async def test_set_max_speed_accepts_boundary_values(mocker, boundary_kmh):
+    bolt, mock_client = make_bolt(mocker)
+    mocker.patch.object(bolt, "get_max_speed", AsyncMock(return_value=boundary_kmh))
+    result = await bolt.set_max_speed(boundary_kmh)
+    assert result == boundary_kmh
+    expected_frame = build_frame(TYPE_SET_SPEED, bytes([boundary_kmh]))
     mock_client.write_gatt_char.assert_awaited_once_with(WRITE_CHAR, expected_frame, response=True)
 
 

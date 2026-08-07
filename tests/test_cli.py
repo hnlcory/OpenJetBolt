@@ -40,16 +40,39 @@ def test_parser_scan_and_pair():
 
 
 # `config` has its own nested sub-subparsers (show/set/clear); `config set`
-# also has its own -a/-p/-n flags separate from the top-level ones.
+# also has its own -a/-p/-n flags, bound to set_address/set_password/
+# set_name_hint (NOT address/password/name_hint) specifically so they can't
+# collide with the top-level flags of the same short/long names -- see the
+# dedicated collision-regression test below.
 def test_parser_config_show_set_clear():
     parser = cli.build_parser()
     assert parser.parse_args(["config", "show"]).config_action == "show"
     assert parser.parse_args(["config", "clear"]).config_action == "clear"
     set_args = parser.parse_args(["config", "set", "-a", "AA:BB", "-p", "123456", "-n", "MyBolt"])
     assert set_args.config_action == "set"
-    assert set_args.address == "AA:BB"
-    assert set_args.password == "123456"
-    assert set_args.name_hint == "MyBolt"
+    assert set_args.set_address == "AA:BB"
+    assert set_args.set_password == "123456"
+    assert set_args.set_name_hint == "MyBolt"
+
+
+# Regression test for bug 1.1: `config set`'s -a/-p/-n used to share the
+# same argparse `dest` as the top-level --address/--password/--name-hint
+# flags, so whichever parser ran last (the config-set subparser) silently
+# overwrote the global value on the shared namespace attribute --
+# `--address GLOBAL config set --password PW` used to leave args.address
+# = None, silently dropping the global value the user passed. With
+# separate dest names, the two must never collide: the global flag's value
+# must survive, and the config-set flag must land on its own attribute.
+def test_parser_config_set_flags_do_not_collide_with_global_flags():
+    parser = cli.build_parser()
+    args = parser.parse_args(["--address", "GLOBAL", "config", "set", "--password", "PW"])
+    assert args.address == "GLOBAL"     # global value must survive untouched
+    assert args.set_password == "PW"    # config-set value lands on its own attribute
+    assert args.set_address is None     # no address was passed to `config set` itself
+
+    args2 = parser.parse_args(["--address", "GLOBAL", "config", "set", "--address", "LOCAL"])
+    assert args2.address == "GLOBAL"        # global flag still untouched
+    assert args2.set_address == "LOCAL"     # config-set's own value, distinct from the global
 
 
 # `monitor` takes an optional positional seconds, defaulting to 30.
@@ -85,6 +108,37 @@ def test_parser_set_requires_kmh():
     assert parser.parse_args(["set", "25"]).kmh == 25
     with pytest.raises(SystemExit):
         parser.parse_args(["set"])   # kmh is a required positional
+
+
+# Regression test for bug 1.4: `kmh` used to be plain `type=int` with no
+# range check anywhere in the call chain, so `set 300`/`set -5` reached
+# Bolt.set_max_speed(), which masked them with `& 0xFF` into a different,
+# valid-looking speed (44 km/h / 251 km/h) instead of rejecting them. The
+# `_kmh_type` validator now rejects out-of-range values at parse time with
+# a clean argparse usage error (SystemExit + a message on stderr),
+# never even reaching set_max_speed().
+@pytest.mark.parametrize("bad_value", ["300", "-5", "256", "-1"])
+def test_parser_set_rejects_out_of_range_kmh(capsys, bad_value):
+    parser = cli.build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["set", bad_value])
+    assert "kmh must be between 0 and 255" in capsys.readouterr().err
+
+
+# Non-numeric kmh should also be a clean parse error, not an uncaught
+# ValueError from int().
+def test_parser_set_rejects_non_numeric_kmh(capsys):
+    parser = cli.build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["set", "abc"])
+    assert "not an integer" in capsys.readouterr().err
+
+
+# The valid range's edges (0 and 255) must still parse successfully.
+@pytest.mark.parametrize("boundary_value", ["0", "255"])
+def test_parser_set_accepts_boundary_kmh(boundary_value):
+    parser = cli.build_parser()
+    assert parser.parse_args(["set", boundary_value]).kmh == int(boundary_value)
 
 
 # The global --address/--password/--name-hint flags (before the subcommand
@@ -230,6 +284,49 @@ async def test_cmd_pair_multiple_candidates_prompts_for_selection(mocker, isolat
     assert saved["password"] == "123456"
 
 
+# Regression test for bug 1.5: `int(input(...))` used to have no
+# try/except, so typing anything non-numeric at the device-selection prompt
+# (e.g. a typo) raised an uncaught ValueError traceback instead of
+# re-prompting. It must now print a message and ask again until it gets a
+# parseable number.
+async def test_cmd_pair_reprompts_on_non_numeric_selection(mocker, isolated_config, make_mock_bolt):
+    discovered = {
+        "AA:BB": _make_candidate("Bolt-1", -40),
+        "CC:DD": _make_candidate("Bolt-2", -45),
+    }
+    mocker.patch.object(cli.BleakScanner, "discover", AsyncMock(return_value=discovered))
+    bolt_class, bolt = make_mock_bolt()
+    mocker.patch.object(cli, "Bolt", bolt_class)
+    # "abc" (not a number), then a valid selection, then the password.
+    input_mock = mocker.patch("builtins.input", side_effect=["abc", "0", "123456"])
+
+    await cli.cmd_pair("Bolt")   # must not raise
+
+    assert input_mock.call_count == 3
+    assert cli.load_config()["address"] == "AA:BB"
+
+
+# Regression test for bug 1.5: an out-of-range index (e.g. "99" when there
+# are only 2 candidates) used to reach `candidates[selected_idx]` directly
+# and raise an uncaught IndexError. It must now print a message and
+# re-prompt instead.
+async def test_cmd_pair_reprompts_on_out_of_range_selection(mocker, isolated_config, make_mock_bolt):
+    discovered = {
+        "AA:BB": _make_candidate("Bolt-1", -40),
+        "CC:DD": _make_candidate("Bolt-2", -45),
+    }
+    mocker.patch.object(cli.BleakScanner, "discover", AsyncMock(return_value=discovered))
+    bolt_class, bolt = make_mock_bolt()
+    mocker.patch.object(cli, "Bolt", bolt_class)
+    # "99" (out of range), then a valid selection, then the password.
+    input_mock = mocker.patch("builtins.input", side_effect=["99", "1", "123456"])
+
+    await cli.cmd_pair("Bolt")   # must not raise
+
+    assert input_mock.call_count == 3
+    assert cli.load_config()["address"] == "CC:DD"
+
+
 # If the entered password is rejected by the bike, cmd_pair() must raise
 # SystemExit and must NOT save anything -- a rejected password should never
 # become the new saved default.
@@ -268,10 +365,15 @@ def test_cmd_config_show_prints_each_saved_key(isolated_config, capsys):
 
 
 # `config set` should only touch the fields explicitly passed, leaving any
-# other previously-saved keys (like an untouched name_hint) intact.
+# other previously-saved keys (like an untouched name_hint) intact. Uses
+# the set_address/set_password/set_name_hint attribute names (see bug 1.1
+# fix in build_parser()) -- cmd_config only ever reads those, never
+# address/password/name_hint, for the "set" action.
 def test_cmd_config_set_merges_without_clobbering_unrelated_keys(isolated_config):
     cli.save_config({"address": "AA:BB", "name_hint": "Bolt"})
-    cli.cmd_config(types.SimpleNamespace(config_action="set", address=None, password="999999", name_hint=None))
+    cli.cmd_config(
+        types.SimpleNamespace(config_action="set", set_address=None, set_password="999999", set_name_hint=None)
+    )
     saved = cli.load_config()
     assert saved == {"address": "AA:BB", "name_hint": "Bolt", "password": "999999"}
 

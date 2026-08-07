@@ -186,6 +186,18 @@ def test_parse_a1_wrong_type_returns_none():
     assert parse_a1(frame) is None
 
 
+# Regression test for bug 1.2: the old length guard was `len(data) >= 9`,
+# but the payload (data[3:-2]) is only 4 bytes at exactly that length, and
+# the code goes on to index payload[4] -- an exact 9-byte 0xA1 frame (a
+# plausible truncated/malformed frame on a flaky BLE link) raised
+# IndexError from inside the bleak notify callback instead of returning
+# None like every other malformed-frame case. Must return None, not raise.
+def test_parse_a1_nine_byte_frame_does_not_raise_indexerror():
+    truncated_frame = bytes([START, 0xA1, 0x09, 1, 2, 3, 4, 0x00, END])
+    assert len(truncated_frame) == 9
+    assert parse_a1(truncated_frame) is None
+
+
 # A well-formed 0xA4 frame should extract to (brake, light, analog) -- check
 # all four brake/light bit combinations map to the correct 0/1 values.
 def test_parse_a4_well_formed_frame_all_flag_combinations():
@@ -211,3 +223,10 @@ def test_parse_a4_wrong_type_returns_none():
     payload = bytes([0, 150, 0, 1, 0x10])
     frame = build_frame(0xA1, payload)
     assert parse_a4(frame) is None
+
+
+# Same bug-1.2 regression as parse_a1's nine-byte test above, for parse_a4.
+def test_parse_a4_nine_byte_frame_does_not_raise_indexerror():
+    truncated_frame = bytes([START, 0xA4, 0x09, 1, 2, 3, 4, 0x00, END])
+    assert len(truncated_frame) == 9
+    assert parse_a4(truncated_frame) is None

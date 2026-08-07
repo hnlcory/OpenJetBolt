@@ -121,7 +121,21 @@ async def cmd_pair(name_hint):
     if len(candidates) == 1:
         selected_idx = 0                                # only one match -- no need to prompt
     else:
-        selected_idx = int(input(f"  select a device [0-{len(candidates)-1}]: ").strip())
+        # Re-prompt on bad input instead of letting a non-numeric answer
+        # (ValueError) or an out-of-range index (IndexError) escape as a
+        # raw traceback -- both are plausible typos, not exceptional states.
+        selected_idx = None
+        while selected_idx is None:
+            raw_choice = input(f"  select a device [0-{len(candidates)-1}]: ").strip()
+            try:
+                candidate_idx = int(raw_choice)
+            except ValueError:
+                print(f"  '{raw_choice}' is not a number -- try again")
+                continue
+            if not 0 <= candidate_idx < len(candidates):
+                print(f"  {candidate_idx} is out of range -- try again")
+                continue
+            selected_idx = candidate_idx
     address = candidates[selected_idx][0]
 
     password = input(f"  6-digit password [{DEFAULT_PASSWORD}]: ").strip() or DEFAULT_PASSWORD
@@ -145,7 +159,11 @@ async def cmd_pair(name_hint):
 #     discovery (unlike `pair`, this never talks to a bike).
 #   Args:
 #     args (argparse.Namespace) -- must have .config_action ("show"/"set"/
-#       "clear") and, for "set", optional .address/.password/.name_hint.
+#       "clear") and, for "set", optional .set_address/.set_password/
+#       .set_name_hint (see build_parser() -- these have their own `dest`
+#       names, distinct from the top-level --address/--password/--name-hint
+#       flags, precisely so the two don't collide on the same namespace
+#       attribute).
 #   Returns: None. Side effects: prints (show), writes CONFIG_PATH (set),
 #     or deletes CONFIG_PATH (clear).
 def cmd_config(args):
@@ -158,12 +176,12 @@ def cmd_config(args):
             print(f"  {key} = {value}")
     elif args.config_action == "set":
         config = load_config()
-        if args.address:
-            config["address"] = args.address
-        if args.password:
-            config["password"] = args.password
-        if args.name_hint:
-            config["name_hint"] = args.name_hint
+        if args.set_address:
+            config["address"] = args.set_address
+        if args.set_password:
+            config["password"] = args.set_password
+        if args.set_name_hint:
+            config["name_hint"] = args.set_name_hint
         save_config(config)
         print(f"  saved to {CONFIG_PATH}")
     elif args.config_action == "clear":
@@ -276,6 +294,33 @@ async def cmd_set(address, password, name_hint, kmh):
             print(f"  controller CLAMPED {kmh} -> {confirmed_speed} km/h (firmware ceiling = {confirmed_speed})")
 
 
+# _kmh_type(value)
+#   Usage: registered as the `type=` for `set`'s kmh positional argument.
+#     Validates that the requested max speed is both a real integer and
+#     within 0-255 (the wire protocol's payload is a single unsigned byte)
+#     at ARGUMENT-PARSING time, so an out-of-range value like `set 300` is
+#     rejected with a clean argparse usage error immediately, rather than
+#     reaching Bolt.set_max_speed() at all. (set_max_speed() itself also
+#     re-validates -- see its docstring-comment in transport.py -- as
+#     defense in depth for any non-CLI caller.) Previously there was no
+#     validation anywhere in this path, and the payload byte was built with
+#     `kmh & 0xFF`, which silently turned `set 300` into 44 km/h and
+#     `set -5` into 251 km/h instead of rejecting either.
+#   Args:
+#     value (str) -- the raw command-line argument text.
+#   Returns: int -- the validated kmh value.
+#   Raises: argparse.ArgumentTypeError -- if `value` isn't an integer, or is
+#     outside 0-255.
+def _kmh_type(value):
+    try:
+        kmh = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} is not an integer")
+    if not 0 <= kmh <= 255:
+        raise argparse.ArgumentTypeError(f"kmh must be between 0 and 255 (got {kmh})")
+    return kmh
+
+
 # ---------------------------------------------------------------------------
 # build_parser()
 #   Usage: parser = build_parser()
@@ -308,13 +353,23 @@ def build_parser():
     # from the top-level --address/--password/--name-hint flags above --
     # these `-a`/`-p`/`-n` only apply to `config set`, writing straight to
     # CONFIG_PATH rather than overriding a single command's behavior.
+    # IMPORTANT: they're given their own `dest=` names (set_address/
+    # set_password/set_name_hint) rather than reusing "address"/"password"/
+    # "name_hint" -- argparse merges every subparser's arguments into the
+    # SAME Namespace, so reusing those names would mean the last parser to
+    # run (this one) silently clobbers the top-level flag on the shared
+    # attribute. Concretely, without distinct dest names,
+    # `--address GLOBAL config set --password PW` used to leave
+    # args.address = None (the global value silently dropped), and
+    # `--address GLOBAL config set --address LOCAL` used to leave
+    # args.address = "LOCAL" with no way to tell the two flags apart.
     config_parser = subparsers.add_parser("config", help="view or edit saved defaults")
     config_subparsers = config_parser.add_subparsers(dest="config_action", required=True)
     config_subparsers.add_parser("show")
     config_set_parser = config_subparsers.add_parser("set")
-    config_set_parser.add_argument("--address", "-a")
-    config_set_parser.add_argument("--password", "-p")
-    config_set_parser.add_argument("--name-hint", "-n")
+    config_set_parser.add_argument("--address", "-a", dest="set_address")
+    config_set_parser.add_argument("--password", "-p", dest="set_password")
+    config_set_parser.add_argument("--name-hint", "-n", dest="set_name_hint")
     config_subparsers.add_parser("clear")
 
     monitor_parser = subparsers.add_parser("monitor", help="print live telemetry")
@@ -328,7 +383,7 @@ def build_parser():
     subparsers.add_parser("get", help="print current max speed")
 
     set_parser = subparsers.add_parser("set", help="set max speed (km/h)")
-    set_parser.add_argument("kmh", type=int)                          # required positional -- no sensible default for a target speed
+    set_parser.add_argument("kmh", type=_kmh_type)                    # required positional -- no sensible default for a target speed; validated 0-255
 
     return parser
 

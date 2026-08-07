@@ -295,13 +295,23 @@ class Bolt:
     #     Sends the binary "set max speed" command, then waits for the
     #     bike's own 0xA3 read-back to see what it actually accepted.
     #   Args:
-    #     kmh (int) -- desired max speed in km/h (0-255; the protocol's
-    #                  payload is a single byte, masked with & 0xFF).
+    #     kmh (int) -- desired max speed in km/h. The protocol's payload is
+    #                  a single unsigned byte, so 0-255 is the hard wire
+    #                  limit -- values outside that range are REJECTED (see
+    #                  ValueError below), not silently wrapped.
     #   Returns: int | None -- the km/h value the bike reports back via
     #     0xA3 (may be lower than requested if firmware clamps it), or None
     #     if no confirmation frame arrived at all.
+    #   Raises: ValueError -- if kmh is outside 0-255. Previously this was
+    #     masked with `kmh & 0xFF`, which silently turned e.g. 300 into 44
+    #     and -5 into 251 -- on a device that controls how fast a vehicle
+    #     goes, silently substituting a different valid speed for an
+    #     out-of-range request is the wrong default, so it's rejected here
+    #     instead of "corrected".
     async def set_max_speed(self, kmh):
-        frame = build_frame(TYPE_SET_SPEED, bytes([kmh & 0xFF]))
+        if not 0 <= kmh <= 255:
+            raise ValueError(f"kmh must be between 0 and 255 (the protocol's payload is one byte), got {kmh}")
+        frame = build_frame(TYPE_SET_SPEED, bytes([kmh]))
         print(f"  -> set max speed {kmh} km/h ({kmh*0.6214:.1f} mph):  {frame.hex(' ')}")
         await self._write(frame)
         return await self.get_max_speed()
