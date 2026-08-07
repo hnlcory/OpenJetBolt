@@ -3,6 +3,8 @@
 A CLI tool that talks directly to a Jetson Bolt e-bike over Bluetooth
 Low Energy (BLE), bypassing/replacing the official "Ride Jetson" iOS/Android app entirely. Reads live telemetry (battery, speed, brake/light state) and allows the bike's max speed limit to be set past the app restricted limit of 15mph.
 
+![Image of the monitor function](images/screenshot_monitor.png)
+
 Works with any Jetson Bolt. Connect a specific bike's BLE address and password once, 
 and it remembers that as the default for future runs. The authentication is the same for every
 Jetson Bolt (it comes from the shared app not the individual bike). Only the BLE address and the 6 digit password change per bike.
@@ -38,7 +40,7 @@ python3 OpenJetBolt.py info      # firmware info + current max speed
 python3 OpenJetBolt.py set 30    # set max speed to 30 km/h
 ```
 
-## How settings are resolved
+## Pairing Info
 
 Every bike facing command needs three things: an **address**, a **password**,
 and a **name hint** (used only when scanning for an address). These resolve
@@ -138,7 +140,7 @@ python3 OpenJetBolt.py monitor 60
 
 Connects, authenticates, and prints every decoded notification live for the
 given duration (default 30s). While running, a summary bar stays
-at the bottom of the terminal (see [Status Bar](#status-bar-while-monitoringlogging) below).
+at the bottom of the terminal (see [Status Bar](#status-bar) below).
 
 ### `log [seconds] [path]`
 
@@ -167,7 +169,7 @@ python3 OpenJetBolt.py selftest
 Validates the authentication math against known test vectors (no bike or Bluetooth connection needed). Useful to confirm the
 script itself is working correctly before troubleshooting connection issue.
 
-## Status Bar while monitoring/logging
+## Status Bar
 
 During `monitor` and `log`, a summary is at the bottom of the
 terminal while the decoded telemetry stream keeps scrolling above it:
@@ -209,7 +211,7 @@ python3 OpenJetBolt.py set 32
 python3 OpenJetBolt.py monitor 60
 ```
 
-## Development / running tests
+## Development / Tests
 
 Normal usage only needs `bleak` (see [Requirements](#requirements)). The unit
 test suite under `tests/` have optional dependencies
